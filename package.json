@@ -1,0 +1,111 @@
+{
+  "name": "celiador-remote",
+  "displayName": "Celiador Remote",
+  "description": "Run Claude agents on your repositories from your phone, in VS Code or Cursor: label a GitHub issue, review and merge the pull request from the Celiador iPhone app.",
+  "version": "0.1.0",
+  "publisher": "celiador",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cliefden/celiador-remote"
+  },
+  "homepage": "https://celiador.ai/start",
+  "bugs": {
+    "url": "https://github.com/Cliefden/celiador-remote/issues"
+  },
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "agent",
+    "github",
+    "pull request",
+    "remote",
+    "iphone"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Agents do not run in Restricted Mode, and workspace settings cannot change where your credentials are sent.",
+      "restrictedConfigurations": [
+        "celiador.daemonUrl",
+        "celiador.supabaseUrl"
+      ]
+    }
+  },
+  "contributes": {
+    "commands": [
+      { "command": "celiador.signIn", "title": "Sign In", "category": "Celiador" },
+      { "command": "celiador.signOut", "title": "Sign Out", "category": "Celiador" },
+      { "command": "celiador.startRun", "title": "Run an Agent on This Repository…", "category": "Celiador" },
+      { "command": "celiador.cancelRun", "title": "Cancel the Running Agent", "category": "Celiador" },
+      { "command": "celiador.showRuns", "title": "Show Agent Runs", "category": "Celiador" },
+      { "command": "celiador.openStartGuide", "title": "Open the Start Guide", "category": "Celiador" }
+    ],
+    "configuration": {
+      "title": "Celiador",
+      "properties": {
+        "celiador.daemonUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "description": "Your Celiador server (leave empty for https://celiador.ai). Self-hosting? Point this at your own daemon."
+        },
+        "celiador.supabaseUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "description": "Override the sign-in server the daemon announces. Leave empty."
+        },
+        "celiador.agentTasks.permissionMode": {
+          "type": "string",
+          "enum": ["auto", "default"],
+          "enumDescriptions": [
+            "Claude decides per tool call: routine commands run, risky ones ask you on the phone.",
+            "Every tool call asks for approval, on the phone and in the editor."
+          ],
+          "default": "auto",
+          "description": "How much an agent run may do without asking."
+        },
+        "celiador.agentTasks.issueComment": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a queued GitHub issue starts running, comment on it (with your GitHub sign-in) saying an agent picked it up. Not needed when the Celiador GitHub App is installed on the repository: it comments as Celiador."
+        },
+        "celiador.agentTasks.attribution": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add a line to pull requests opened by agent runs saying they were made with Celiador."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "npm run typecheck && npm run build && vsce package --no-dependencies",
+    "publish:openvsx": "npm run package && ovsx publish *.vsix"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.309"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.25.0",
+    "ovsx": "^0.10.0",
+    "typescript": "^5.6.0"
+  }
+}

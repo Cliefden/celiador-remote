@@ -1,0 +1,13 @@
+.vscode/**
+.gitignore
+src/**
+tsconfig.json
+esbuild.mjs
+dist/**/*.map
+node_modules/.bin/**
+node_modules/**/test/**
+node_modules/**/tests/**
+node_modules/**/*.md
+!node_modules/@anthropic-ai/claude-agent-sdk/**
+**/.DS_Store
+*.vsix
