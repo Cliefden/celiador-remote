@@ -48,6 +48,7 @@ phone / GitHub issue ─▶ celiador.ai (queue + relay) ─▶ this extension
 - The Claude subprocess never holds your Celiador token: it gets a one-off session nonce for a loopback proxy in the extension, which attaches your current token to each request (tokens rotate hourly; a run survives that).
 - Settings come from your user, project and local Claude settings (`settingSources`), so your CLAUDE.md, hooks and MCP servers apply.
 - The worktree is created from `origin/<default branch>` after a fetch, on the task's branch (suffixed if taken).
+- The Claude Code CLI itself is not in the VSIX (its native binary is about 270 MB). The extension uses a `claude` already installed on the machine, or downloads the exact version the SDK expects into its global storage the first time an agent runs.
 
 ## Building
 

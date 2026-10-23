@@ -4,10 +4,14 @@ src/**
 tsconfig.json
 esbuild.mjs
 dist/**/*.map
-node_modules/.bin/**
+**/.DS_Store
+*.vsix
+# The platform-native Claude Code binary (~270 MB) is not shipped in the VSIX:
+# the extension uses an installed `claude`, or downloads the exact version it
+# needs into its global storage on first run (src/cli.ts).
+node_modules/@anthropic-ai/claude-agent-sdk-*/**
 node_modules/**/test/**
 node_modules/**/tests/**
 node_modules/**/*.md
-!node_modules/@anthropic-ai/claude-agent-sdk/**
-**/.DS_Store
-*.vsix
+node_modules/**/*.d.ts
+node_modules/**/*.map

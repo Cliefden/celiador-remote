@@ -131,6 +131,7 @@ export class RelayClient {
   }
 
   dispose(): void {
+    this.options.log?.(`relay ${this.sessionId_ ?? '-'} disposed\n${new Error().stack?.split('\n').slice(2, 6).join('\n')}`);
     void this.flush();
     this.disposed = true;
     this.commandAbort?.abort();
@@ -195,15 +196,17 @@ export class RelayClient {
           signal: ac.signal,
         });
         if (!res.ok || !res.body) {
+          this.options.log?.(`relay ${id} commands: HTTP ${res.status}`);
           await this.backoff(ac);
           continue;
         }
+        this.options.log?.(`relay ${id} commands connected`);
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = '';
         for (;;) {
           const { done, value } = await reader.read();
-          if (done) {break;}
+          if (done) {this.options.log?.(`relay ${id} commands ended`); break;}
           buf += decoder.decode(value, { stream: true });
           const lines = buf.split('\n');
           buf = lines.pop() ?? '';
@@ -218,8 +221,9 @@ export class RelayClient {
             }
           }
         }
-      } catch {
+      } catch (err) {
         if (ac.signal.aborted) {return;}
+        this.options.log?.(`relay ${id} commands error: ${err instanceof Error ? err.message : String(err)}`);
       }
       await this.backoff(ac);
     }

@@ -45,12 +45,36 @@
   },
   "contributes": {
     "commands": [
-      { "command": "celiador.signIn", "title": "Sign In", "category": "Celiador" },
-      { "command": "celiador.signOut", "title": "Sign Out", "category": "Celiador" },
-      { "command": "celiador.startRun", "title": "Run an Agent on This Repository…", "category": "Celiador" },
-      { "command": "celiador.cancelRun", "title": "Cancel the Running Agent", "category": "Celiador" },
-      { "command": "celiador.showRuns", "title": "Show Agent Runs", "category": "Celiador" },
-      { "command": "celiador.openStartGuide", "title": "Open the Start Guide", "category": "Celiador" }
+      {
+        "command": "celiador.signIn",
+        "title": "Sign In",
+        "category": "Celiador"
+      },
+      {
+        "command": "celiador.signOut",
+        "title": "Sign Out",
+        "category": "Celiador"
+      },
+      {
+        "command": "celiador.startRun",
+        "title": "Run an Agent on This Repository\u2026",
+        "category": "Celiador"
+      },
+      {
+        "command": "celiador.cancelRun",
+        "title": "Cancel the Running Agent",
+        "category": "Celiador"
+      },
+      {
+        "command": "celiador.showRuns",
+        "title": "Show Agent Runs",
+        "category": "Celiador"
+      },
+      {
+        "command": "celiador.openStartGuide",
+        "title": "Open the Start Guide",
+        "category": "Celiador"
+      }
     ],
     "configuration": {
       "title": "Celiador",
@@ -69,7 +93,10 @@
         },
         "celiador.agentTasks.permissionMode": {
           "type": "string",
-          "enum": ["auto", "default"],
+          "enum": [
+            "auto",
+            "default"
+          ],
           "enumDescriptions": [
             "Claude decides per tool call: routine commands run, risky ones ask you on the phone.",
             "Every tool call asks for approval, on the phone and in the editor."
@@ -94,7 +121,7 @@
     "typecheck": "tsc --noEmit -p .",
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "package": "npm run typecheck && npm run build && vsce package --no-dependencies",
+    "package": "npm run typecheck && npm run build && vsce package",
     "publish:openvsx": "npm run package && ovsx publish *.vsix"
   },
   "dependencies": {

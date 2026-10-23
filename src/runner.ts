@@ -35,6 +35,8 @@ export interface RunDeps {
   readonly daemonUrl: () => string;
   readonly getToken: () => Promise<string | undefined>;
   readonly proxy: DaemonProxy;
+  /** The Claude Code CLI to spawn; undefined lets the SDK find its own. */
+  readonly claudeExecutable: () => Promise<string | undefined>;
   readonly log: (message: string) => void;
 }
 
@@ -156,6 +158,8 @@ export class AgentRun implements vscode.Disposable {
     // The daemon picks the model (and publishes it); telling the CLI the same
     // name keeps its context sizing and request shape right for that model.
     const model = await publishedModel(this.deps.daemonUrl()).catch(() => undefined);
+    const claudeExecutable = await this.deps.claudeExecutable();
+    if (this.abort.signal.aborted) {return this.status_;}
     const env: Record<string, string | undefined> = {
       ...process.env,
       // Credentials come from the Celiador account through the loopback proxy,
@@ -174,6 +178,7 @@ export class AgentRun implements vscode.Disposable {
       canUseTool: this.canUseTool,
       permissionMode: this.options.permissionMode,
       ...(model ? { model } : {}),
+      ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
       allowDangerouslySkipPermissions: true,
       includePartialMessages: true,
       disallowedTools: ['WebSearch'],

@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 import * as vscode from 'vscode';
 import { Auth } from './auth';
+import { ClaudeExecutable } from './cli';
 import { Control } from './control';
 import { resolveDaemonUrl } from './daemonUrl';
 import { registerGitReview, registerTaskCommands } from './gitReview';
@@ -23,7 +24,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const daemonUrl = () => resolveDaemonUrl();
   const proxy = new DaemonProxy(() => `${daemonUrl()}/api/anthropic`, getToken, log);
   const presence = new Presence(daemonUrl, getToken, log);
-  const control = new Control({ daemonUrl, getToken, proxy, log }, output, getToken);
+  const claude = new ClaudeExecutable(context, log);
+  const control = new Control({ daemonUrl, getToken, proxy, claudeExecutable: () => claude.get(), log }, output, getToken);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
   status.command = 'celiador.showRuns';
 
