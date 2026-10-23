@@ -15,6 +15,11 @@ import { DaemonProxy } from './proxy';
 // Sign in with a Celiador account; the agent's usage goes through celiador.ai.
 
 export function activate(context: vscode.ExtensionContext): void {
+  if (/celiador/i.test(vscode.env.appName)) {
+    // The Celiador editor has all of this built in; two copies would fight over the same runs.
+    void vscode.window.showInformationMessage('Celiador Remote is for VS Code and Cursor. This editor already has the phone loop built in, so the extension stays off here.');
+    return;
+  }
   const output = vscode.window.createOutputChannel('Celiador');
   const log = (message: string) => output.appendLine(`[${new Date().toISOString().slice(11, 19)}] ${message}`);
   const auth = new Auth(context.secrets);
@@ -27,7 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const claude = new ClaudeExecutable(context, log);
   const control = new Control({ daemonUrl, getToken, proxy, claudeExecutable: () => claude.get(), log }, output, getToken);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
-  status.command = 'celiador.showRuns';
+  status.command = 'celiadorRemote.showRuns';
 
   const refreshStatus = async () => {
     const email = await auth.currentEmail();
@@ -36,19 +41,19 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!email) {
       status.text = '$(cloud) Celiador: sign in';
       status.tooltip = 'Sign in to Celiador to run agents from your phone';
-      status.command = 'celiador.signIn';
+      status.command = 'celiadorRemote.signIn';
     } else if (awaiting) {
       status.text = `$(bell) Celiador: ${awaiting} waiting`;
       status.tooltip = 'An agent is waiting for an approval or an answer (phone or editor)';
-      status.command = 'celiador.showRuns';
+      status.command = 'celiadorRemote.showRuns';
     } else if (runs.length) {
       status.text = `$(sync~spin) Celiador: ${runs.length} running`;
       status.tooltip = 'Agent runs in progress';
-      status.command = 'celiador.showRuns';
+      status.command = 'celiadorRemote.showRuns';
     } else {
       status.text = '$(cloud) Celiador';
       status.tooltip = `Signed in as ${email}. ${openRepos().length} repositories reachable from your phone.`;
-      status.command = 'celiador.showRuns';
+      status.command = 'celiadorRemote.showRuns';
     }
     status.show();
   };
@@ -73,12 +78,12 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       },
     }),
-    vscode.commands.registerCommand('celiador.signIn', () => signIn(auth)),
-    vscode.commands.registerCommand('celiador.signOut', async () => {
+    vscode.commands.registerCommand('celiadorRemote.signIn', () => signIn(auth)),
+    vscode.commands.registerCommand('celiadorRemote.signOut', async () => {
       await auth.signOut();
       void vscode.window.showInformationMessage('Signed out of Celiador.');
     }),
-    vscode.commands.registerCommand('celiador.startRun', async () => {
+    vscode.commands.registerCommand('celiadorRemote.startRun', async () => {
       if (!(await auth.isSignedIn())) {return signIn(auth);}
       const repos = openRepos();
       const folder = repos.length > 1
@@ -94,7 +99,7 @@ export function activate(context: vscode.ExtensionContext): void {
       control.startLocalRun(root, prompt.trim().slice(0, 80), prompt.trim());
       output.show(true);
     }),
-    vscode.commands.registerCommand('celiador.cancelRun', async () => {
+    vscode.commands.registerCommand('celiadorRemote.cancelRun', async () => {
       const runs = control.activeRuns.filter((r) => r.status === 'running' || r.status === 'awaiting');
       if (!runs.length) {
         void vscode.window.showInformationMessage('No agent is running.');
@@ -103,12 +108,12 @@ export function activate(context: vscode.ExtensionContext): void {
       const pick = runs.length === 1 ? runs[0] : (await vscode.window.showQuickPick(runs.map((r) => ({ label: r.options.title, description: r.options.root, run: r })), { title: 'Cancel which run?' }))?.run;
       pick?.cancel();
     }),
-    vscode.commands.registerCommand('celiador.showRuns', async () => {
+    vscode.commands.registerCommand('celiadorRemote.showRuns', async () => {
       const runs = control.activeRuns;
       if (!runs.length) {
         const choice = await vscode.window.showInformationMessage('No agent runs yet. Start one here, or from your phone.', 'Run an Agent…', 'Open the Start Guide');
-        if (choice === 'Run an Agent…') {void vscode.commands.executeCommand('celiador.startRun');}
-        if (choice === 'Open the Start Guide') {void vscode.commands.executeCommand('celiador.openStartGuide');}
+        if (choice === 'Run an Agent…') {void vscode.commands.executeCommand('celiadorRemote.startRun');}
+        if (choice === 'Open the Start Guide') {void vscode.commands.executeCommand('celiadorRemote.openStartGuide');}
         return;
       }
       const pick = await vscode.window.showQuickPick(runs.map((r) => ({
@@ -119,7 +124,7 @@ export function activate(context: vscode.ExtensionContext): void {
       })), { title: 'Agent runs' });
       if (pick) {output.show(true);}
     }),
-    vscode.commands.registerCommand('celiador.openStartGuide', () => vscode.env.openExternal(vscode.Uri.parse('https://celiador.ai/start'))),
+    vscode.commands.registerCommand('celiadorRemote.openStartGuide', () => vscode.env.openExternal(vscode.Uri.parse('https://celiador.ai/start'))),
   );
   void refreshStatus();
   log(`Celiador Remote active; daemon ${daemonUrl()}; ${openRepos().length} repositories with a GitHub origin`);

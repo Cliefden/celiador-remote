@@ -358,7 +358,7 @@ export class AgentRun implements vscode.Disposable {
 
   private async handleGit(kind: RelayGitKind, requestId: string, args: RelayGitArgs): Promise<void> {
     try {
-      const result = await vscode.commands.executeCommand<{ ok: boolean; [key: string]: unknown }>('celiador.relayGit', { kind, ...args, root: this.options.root });
+      const result = await vscode.commands.executeCommand<{ ok: boolean; [key: string]: unknown }>('celiadorRemote.relayGit', { kind, ...args, root: this.options.root });
       this.relay.publish({ ...(result ?? { ok: false, error: 'no result' }), kind: 'fs.result', requestId });
     } catch (err) {
       this.relay.publish({ kind: 'fs.result', requestId, ok: false, error: err instanceof Error ? err.message : String(err) });

@@ -46,32 +46,32 @@
   "contributes": {
     "commands": [
       {
-        "command": "celiador.signIn",
+        "command": "celiadorRemote.signIn",
         "title": "Sign In",
         "category": "Celiador"
       },
       {
-        "command": "celiador.signOut",
+        "command": "celiadorRemote.signOut",
         "title": "Sign Out",
         "category": "Celiador"
       },
       {
-        "command": "celiador.startRun",
+        "command": "celiadorRemote.startRun",
         "title": "Run an Agent on This Repository\u2026",
         "category": "Celiador"
       },
       {
-        "command": "celiador.cancelRun",
+        "command": "celiadorRemote.cancelRun",
         "title": "Cancel the Running Agent",
         "category": "Celiador"
       },
       {
-        "command": "celiador.showRuns",
+        "command": "celiadorRemote.showRuns",
         "title": "Show Agent Runs",
         "category": "Celiador"
       },
       {
-        "command": "celiador.openStartGuide",
+        "command": "celiadorRemote.openStartGuide",
         "title": "Open the Start Guide",
         "category": "Celiador"
       }

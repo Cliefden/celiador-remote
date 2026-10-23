@@ -131,13 +131,12 @@ export class Control implements vscode.Disposable {
     const repo = this.repoFor(cmd.remoteUrl);
     if (!repo) {return;}
     this.handled.add(cmd.requestId);
-    const prompt = cmd.prompt?.trim();
-    if (!prompt) {
-      this.deps.log(`ignored a start-run without a prompt for ${cmd.name ?? cmd.remoteUrl}`);
-      return;
-    }
+    // The phone may open a run without a first message (the editor fork opens an
+    // idle chat); here the person at the keyboard types it.
+    const prompt = cmd.prompt?.trim() || (await vscode.window.showInputBox({ title: `Your phone wants to run an agent on ${cmd.name ?? repo.fsPath}`, prompt: 'What should it do?', ignoreFocusOut: true }))?.trim();
+    if (!prompt) {return;}
     this.launch(repo.fsPath, { title: prompt.slice(0, 80), prompt, permissionMode: this.permissionMode() });
-    void vscode.window.showInformationMessage(`Celiador: your phone started an agent on ${cmd.name ?? repo.fsPath}.`);
+    void vscode.window.showInformationMessage(`Celiador: an agent is running on ${cmd.name ?? repo.fsPath}, started from your phone.`);
   }
 
   /** A queued task: new worktree on its branch, run, then push and open the pull request. */
@@ -160,7 +159,7 @@ export class Control implements vscode.Disposable {
     await this.reportTask(cmd.taskId, { state: 'running', sessionId: run.sessionId });
     if (cmd.issue && !cmd.commented && settings.get<boolean>('agentTasks.issueComment') !== false) {
       const body = `Celiador picked this up: an agent is working on it in a worktree on branch \`${worktree.branch}\` and will open a pull request linked here. Approvals and questions go to the Celiador queue.`;
-      void vscode.commands.executeCommand<{ ok: boolean; error?: string }>('celiador.commentOnIssue', { remoteUrl: cmd.remoteUrl, number: cmd.issue.number, body })
+      void vscode.commands.executeCommand<{ ok: boolean; error?: string }>('celiadorRemote.commentOnIssue', { remoteUrl: cmd.remoteUrl, number: cmd.issue.number, body })
         .then((r) => { if (!r?.ok) {this.deps.log(`task ${cmd.taskId}: no issue comment (${r?.error ?? 'unavailable'})`);} }, () => undefined);
     }
     const status = await run.start();
@@ -169,7 +168,7 @@ export class Control implements vscode.Disposable {
       return;
     }
     try {
-      const result = await vscode.commands.executeCommand<FinishResult>('celiador.finishTask', {
+      const result = await vscode.commands.executeCommand<FinishResult>('celiadorRemote.finishTask', {
         root: worktree.path,
         title: cmd.title || cmd.branch,
         issue: cmd.issue,

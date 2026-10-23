@@ -313,7 +313,7 @@ async function execute(args: GitReviewArgs): Promise<GitReviewResult> {
 
 /** Register the command the workbench relay bridge delegates git.* commands to. */
 export function registerGitReview(): vscode.Disposable {
-  return vscode.commands.registerCommand('celiador.relayGit', async (args: GitReviewArgs): Promise<GitReviewResult> => {
+  return vscode.commands.registerCommand('celiadorRemote.relayGit', async (args: GitReviewArgs): Promise<GitReviewResult> => {
     try {
       return await execute(args);
     } catch (err) {
@@ -386,14 +386,14 @@ async function finishTask(args: FinishTaskArgs): Promise<GitReviewResult> {
 /** Register the agent-task commands the workbench's editor control calls. */
 export function registerTaskCommands(): vscode.Disposable {
   return vscode.Disposable.from(
-    vscode.commands.registerCommand('celiador.taskWorktree', async (args: { repoRoot: string; branch: string }): Promise<string | undefined> => {
+    vscode.commands.registerCommand('celiadorRemote.taskWorktree', async (args: { repoRoot: string; branch: string }): Promise<string | undefined> => {
       try {
         return await worktreeForBranch(args.repoRoot, args.branch);
       } catch {
         return undefined;
       }
     }),
-    vscode.commands.registerCommand('celiador.finishTask', async (args: FinishTaskArgs): Promise<GitReviewResult> => {
+    vscode.commands.registerCommand('celiadorRemote.finishTask', async (args: FinishTaskArgs): Promise<GitReviewResult> => {
       try {
         return await finishTask(args);
       } catch (err) {
@@ -402,7 +402,7 @@ export function registerTaskCommands(): vscode.Disposable {
     }),
     // The "picked up" comment on a queued issue, with the editor's GitHub
     // sign-in or the gh CLI's. Best-effort: without either it reports why.
-    vscode.commands.registerCommand('celiador.commentOnIssue', async (args: { remoteUrl: string; number: number; body: string }): Promise<{ ok: boolean; error?: string }> => {
+    vscode.commands.registerCommand('celiadorRemote.commentOnIssue', async (args: { remoteUrl: string; number: number; body: string }): Promise<{ ok: boolean; error?: string }> => {
       try {
         const target = parseGitHubRemote(args.remoteUrl);
         if (!target) {return { ok: false, error: 'the repository is not on GitHub' };}
