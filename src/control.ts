@@ -13,6 +13,7 @@ import { createWorktree } from './worktree';
 // window, or none, has it).
 
 const RECONNECT_MS = 3_000;
+const FINISHED_RUN_TTL_MS = 24 * 60 * 60_000;
 
 interface RunCommand {
   readonly kind: 'start-run';
@@ -85,8 +86,9 @@ export class Control implements vscode.Disposable {
     run.onDidChangeStatus(() => this.runsEmitter.fire());
     this.output.appendLine(`\n=== ${options.title} (${root}) ===`);
     void run.start().finally(() => {
-      // Keep finished runs listed for a while so "Show Agent Runs" can report them.
-      setTimeout(() => { this.runs.delete(run.id); run.dispose(); this.runsEmitter.fire(); }, 10 * 60_000);
+      // A finished run stays reachable from the phone (diff, pull request,
+      // merge go over its relay session) for a day, then is let go.
+      setTimeout(() => { this.runs.delete(run.id); run.dispose(); this.runsEmitter.fire(); }, FINISHED_RUN_TTL_MS);
     });
     return run;
   }

@@ -207,8 +207,9 @@ export class AgentRun implements vscode.Disposable {
         this.setStatus('error');
       }
     } finally {
+      // The relay stays open after the run: the phone reviews the diff, opens
+      // the pull request and merges over the same session (see dispose()).
       this.prompts.close();
-      this.relay.dispose();
     }
     return this.status_;
   }
