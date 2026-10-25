@@ -50,6 +50,10 @@ phone / GitHub issue ─▶ celiador.ai (queue + relay) ─▶ this extension
 - The worktree is created from `origin/<default branch>` after a fetch, on the task's branch (suffixed if taken).
 - The Claude Code CLI itself is not in the VSIX (its native binary is about 270 MB). The extension uses a `claude` already installed on the machine, or downloads the exact version the SDK expects into its global storage the first time an agent runs.
 
+## Telemetry
+
+When your editor's telemetry setting is on (`telemetry.telemetryLevel` in VS Code; Cursor and other forks honour it too), the extension sends a few anonymous usage events to [TelemetryDeck](https://telemetrydeck.com): that it is active in a signed-in editor (with the editor's name and a rough repository count: 0, 1, 2-5, 6+), sign-ins (password or link), runs started from the phone or the command palette, and how queued tasks end (pull request, failed, cancelled). The user is a salted hash of the editor's machine id. Never sent: code, prompts, chat content, repository names, paths or your account. Turn the editor's telemetry setting off to stop it.
+
 ## Building
 
 ```sh

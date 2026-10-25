@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk';
 import { openRepos } from './presence';
 import { AgentRun, type RunDeps } from './runner';
+import { signal } from './telemetry';
 import { createWorktree } from './worktree';
 
 // The daemon's per-user control stream: the phone's "run on your editor"
@@ -133,9 +134,12 @@ export class Control implements vscode.Disposable {
     this.handled.add(cmd.requestId);
     // The phone may open a run without a first message (the editor fork opens an
     // idle chat); here the person at the keyboard types it.
+    const seeded = !!cmd.prompt?.trim();
     const prompt = cmd.prompt?.trim() || (await vscode.window.showInputBox({ title: `Your phone wants to run an agent on ${cmd.name ?? repo.fsPath}`, prompt: 'What should it do?', ignoreFocusOut: true }))?.trim();
     if (!prompt) {return;}
     this.launch(repo.fsPath, { title: prompt.slice(0, 80), prompt, permissionMode: this.permissionMode() });
+    const nested = !vscode.workspace.workspaceFolders?.some((f) => f.uri.fsPath === repo.fsPath);
+    signal({ type: 'celiador/phoneRun', payload: { seeded: seeded ? 'true' : 'false', nested: nested ? 'true' : 'false' } });
     void vscode.window.showInformationMessage(`Celiador: an agent is running on ${cmd.name ?? repo.fsPath}, started from your phone.`);
   }
 
@@ -164,6 +168,7 @@ export class Control implements vscode.Disposable {
     }
     const status = await run.start();
     if (status !== 'done') {
+      signal({ type: 'celiador/taskRun', payload: { result: status === 'cancelled' ? 'cancelled' : 'failed' } });
       await this.reportTask(cmd.taskId, { state: 'failed', error: status === 'cancelled' ? 'The run was cancelled.' : 'The agent run failed.' });
       return;
     }
@@ -176,6 +181,7 @@ export class Control implements vscode.Disposable {
       });
       if (!result?.ok || !result.url) {throw new Error(result?.error ?? 'opening the pull request failed');}
       await this.reportTask(cmd.taskId, { state: 'pr-open', prUrl: result.url });
+      signal({ type: 'celiador/taskRun', payload: { result: 'pr-open' } });
       this.deps.log(`task ${cmd.taskId} opened ${result.url}`);
       void vscode.window.showInformationMessage(`Celiador opened a pull request for “${cmd.title}”.`, 'Open').then((choice) => {
         if (choice) {void vscode.env.openExternal(vscode.Uri.parse(result.url!));}
@@ -183,6 +189,7 @@ export class Control implements vscode.Disposable {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.deps.log(`task ${cmd.taskId} could not open its pull request: ${message}`);
+      signal({ type: 'celiador/taskRun', payload: { result: 'failed' } });
       await this.reportTask(cmd.taskId, { state: 'failed', error: message });
     }
   }
