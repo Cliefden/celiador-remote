@@ -34,22 +34,88 @@ export function normalizeToHttps(remote: string): string | undefined {
   return undefined;
 }
 
-/** The repositories of the open workspace folders that have a GitHub-style origin. */
+/** The daemon rejects a heartbeat with more entries than this. */
+const MAX_REPOS = 50;
+/** Subfolders never worth looking into for a nested checkout. */
+const SKIP_DIRS = new Set(['node_modules', 'dist', 'out', 'build', 'vendor', 'Pods']);
+
+/**
+ * The git config of a checkout rooted at `dir`, or undefined. Handles a worktree,
+ * whose `.git` is a file (`gitdir: …/.git/worktrees/<name>`) pointing at the
+ * main repository, which holds the shared config.
+ */
+export function gitConfigPath(dir: string): string | undefined {
+  const dotGit = path.join(dir, '.git');
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(dotGit);
+  } catch {
+    return undefined;
+  }
+  if (stat.isDirectory()) {return path.join(dotGit, 'config');}
+  try {
+    const gitdir = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'))?.[1]?.trim();
+    if (!gitdir) {return undefined;}
+    const resolved = path.resolve(dir, gitdir);
+    let common = resolved;
+    try {
+      common = path.resolve(resolved, fs.readFileSync(path.join(resolved, 'commondir'), 'utf8').trim());
+    } catch {
+      /* not a worktree gitdir (e.g. a submodule) — its config sits in the gitdir */
+    }
+    return path.join(common, 'config');
+  } catch {
+    return undefined;
+  }
+}
+
+/** The https origin of the checkout rooted at `dir`, or undefined. */
+function repoRemote(dir: string): string | undefined {
+  const configPath = gitConfigPath(dir);
+  if (!configPath) {return undefined;}
+  try {
+    const remote = parseRemoteUrl(fs.readFileSync(configPath, 'utf8'));
+    const remoteUrl = remote && normalizeToHttps(remote);
+    return remoteUrl && /^https:\/\//.test(remoteUrl) ? remoteUrl : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The repositories reachable from the open workspace folders that have a
+ * GitHub-style origin: each folder that is itself a checkout, and otherwise the
+ * checkouts directly inside it — so a window on a folder of repos (`~/code`)
+ * offers every repo in it, not none.
+ */
 export function openRepos(): OpenRepo[] {
   const repos: OpenRepo[] = [];
+  const seen = new Set<string>();
+  const add = (name: string, dir: string): boolean => {
+    const remoteUrl = repoRemote(dir);
+    if (remoteUrl && !seen.has(dir)) {
+      seen.add(dir);
+      repos.push({ name, remoteUrl, folder: vscode.Uri.file(dir) });
+    }
+    return !!remoteUrl;
+  };
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    if (folder.uri.scheme !== 'file') {continue;}
+    const root = folder.uri.fsPath;
+    if (add(folder.name, root) || fs.existsSync(path.join(root, '.git'))) {continue;}
+    let entries: fs.Dirent[];
     try {
-      const config = fs.readFileSync(path.join(folder.uri.fsPath, '.git', 'config'), 'utf8');
-      const remote = parseRemoteUrl(config);
-      const remoteUrl = remote && normalizeToHttps(remote);
-      if (remoteUrl && /^https:\/\//.test(remoteUrl)) {
-        repos.push({ name: folder.name, remoteUrl, folder: folder.uri });
-      }
+      entries = fs.readdirSync(root, { withFileTypes: true });
     } catch {
-      /* not a git checkout */
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory() && !entry.name.startsWith('.') && !SKIP_DIRS.has(entry.name)) {
+        add(entry.name, path.join(root, entry.name));
+      }
     }
   }
-  return repos;
+  return repos.slice(0, MAX_REPOS);
 }
 
 export class Presence implements vscode.Disposable {

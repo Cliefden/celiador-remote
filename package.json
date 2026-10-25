@@ -2,7 +2,7 @@
   "name": "celiador-remote",
   "displayName": "Celiador Remote",
   "description": "Run Claude agents on your repositories from your phone, in VS Code or Cursor: label a GitHub issue, review and merge the pull request from the Celiador iPhone app.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "celiador",
   "license": "Apache-2.0",
   "repository": {
@@ -57,7 +57,7 @@
       },
       {
         "command": "celiadorRemote.startRun",
-        "title": "Run an Agent on This Repository\u2026",
+        "title": "Run an Agent on This Repository…",
         "category": "Celiador"
       },
       {
