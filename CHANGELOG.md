@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- A window on a folder of repositories (a project folder, `~/code`) now offers every repository directly inside it to the phone, instead of none. Runs started from the phone use that repository's folder.
+- Git worktrees opened as a folder are recognised.
+
 ## 0.1.0
 
 First release.
