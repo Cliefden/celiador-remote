@@ -9,6 +9,7 @@ import { resolveDaemonUrl } from './daemonUrl';
 import { registerGitReview, registerTaskCommands } from './gitReview';
 import { openRepos, Presence } from './presence';
 import { DaemonProxy } from './proxy';
+import { bucket, initTelemetry, signal } from './telemetry';
 
 // Celiador Remote: run Claude agents on the repositories open in this editor,
 // started and reviewed from the Celiador iPhone app or a labelled GitHub issue.
@@ -20,6 +21,7 @@ export function activate(context: vscode.ExtensionContext): void {
     void vscode.window.showInformationMessage('Celiador Remote is for VS Code and Cursor. This editor already has the phone loop built in, so the extension stays off here.');
     return;
   }
+  initTelemetry(context);
   const output = vscode.window.createOutputChannel('Celiador');
   const log = (message: string) => output.appendLine(`[${new Date().toISOString().slice(11, 19)}] ${message}`);
   const auth = new Auth(context.secrets);
@@ -71,6 +73,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (uri.path !== '/auth-callback') {return;}
         try {
           if (await auth.handleCallback(uri)) {
+            signal({ type: 'celiador/signedIn', payload: { method: 'link' } });
             void vscode.window.showInformationMessage(`Signed in to Celiador as ${await auth.currentEmail() ?? 'you'}.`);
           }
         } catch (err) {
@@ -97,6 +100,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const prompt = await vscode.window.showInputBox({ title: 'What should the agent do?', placeHolder: 'Fix the flaky test in auth.spec.ts', ignoreFocusOut: true });
       if (!prompt?.trim()) {return;}
       control.startLocalRun(root, prompt.trim().slice(0, 80), prompt.trim());
+      signal({ type: 'celiador/localRun', payload: {} });
       output.show(true);
     }),
     vscode.commands.registerCommand('celiadorRemote.cancelRun', async () => {
@@ -127,6 +131,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('celiadorRemote.openStartGuide', () => vscode.env.openExternal(vscode.Uri.parse('https://celiador.ai/start'))),
   );
   void refreshStatus();
+  void auth.isSignedIn().then((signedIn) => {
+    if (signedIn) {signal({ type: 'celiador/remoteActive', payload: { editor: vscode.env.appName, repos: bucket(openRepos().length) } });}
+  }, () => undefined);
   log(`Celiador Remote active; daemon ${daemonUrl()}; ${openRepos().length} repositories with a GitHub origin`);
 }
 
@@ -173,6 +180,7 @@ async function signIn(auth: Auth): Promise<void> {
         return;
       }
     }
+    signal({ type: 'celiador/signedIn', payload: { method: 'password' } });
     void vscode.window.showInformationMessage(`Signed in to Celiador as ${email.trim()}.`);
   } catch (err) {
     void vscode.window.showErrorMessage(`Celiador sign-in failed: ${err instanceof Error ? err.message : String(err)}`);

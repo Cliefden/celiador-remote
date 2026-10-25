@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Anonymous usage events (TelemetryDeck), only while the editor's telemetry setting is on. See "Telemetry" in the README for exactly what is sent.
+
 ## 0.2.0
 
 - A window on a folder of repositories (a project folder, `~/code`) now offers every repository directly inside it to the phone, instead of none. Runs started from the phone use that repository's folder.
