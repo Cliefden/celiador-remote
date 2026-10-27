@@ -1,10 +1,10 @@
 # Celiador Remote
 
-Run Claude agents on the repositories you have open in VS Code or Cursor, started and reviewed from your phone.
+Issue in, pull request out, in the editor you already use. Keep VS Code or Cursor; this extension makes it a runner for the Celiador loop.
 
-Label a GitHub issue `celiador` (or queue a task from the Celiador iPhone app) and this extension picks it up on your machine: it creates a git worktree on a fresh branch, runs a Claude agent there with your project's own settings, mirrors the run to your phone for approvals and questions, then pushes the branch and opens the pull request. Review the diff and merge from the phone. Your checkout is never touched.
+Label a GitHub issue `celiador` (or queue a task from the Celiador iPhone app) and this extension picks it up on your machine: it creates a git worktree on a fresh branch, runs a Claude agent there with your project's own settings, comments on the issue, mirrors the run to your phone for approvals and questions, then pushes the branch and opens the pull request that closes the issue. Review the diff and merge from the phone. Your checkout is never touched.
 
-It is the same loop the [Celiador editor](https://celiador.ai) ships built in, for people who want to keep their editor.
+The loop is the product; the editor is just where it runs. The [Celiador editor](https://celiador.ai) ships the same loop built in with an Agents view on top; this extension is for people who want to keep their editor. Cloud runs for when your machine is off are being built and will need the Celiador GitHub App on the repository; they are not live yet.
 
 ## What you need
 
