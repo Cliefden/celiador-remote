@@ -6,6 +6,7 @@ import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk';
 import { openRepos } from './presence';
 import { AgentRun, type RunDeps } from './runner';
 import { signal } from './telemetry';
+import type { RunTrust } from './trust';
 import { createWorktree } from './worktree';
 
 // The daemon's per-user control stream: the phone's "run on your editor"
@@ -55,6 +56,7 @@ export class Control implements vscode.Disposable {
     private readonly deps: RunDeps,
     private readonly output: vscode.OutputChannel,
     private readonly getToken: () => Promise<string | undefined>,
+    private readonly trust: RunTrust,
   ) {
     void this.loop();
   }
@@ -63,9 +65,9 @@ export class Control implements vscode.Disposable {
     return [...this.runs.values()];
   }
 
-  /** Start a run on a workspace folder from the editor itself (the command palette). */
+  /** Start a run on a workspace folder from the editor itself (the command palette). Callers check trust first. */
   startLocalRun(root: string, title: string, prompt: string): AgentRun {
-    return this.launch(root, { title, prompt, permissionMode: this.permissionMode() });
+    return this.launch(root, root, { title, prompt, permissionMode: this.permissionMode() });
   }
 
   dispose(): void {
@@ -80,8 +82,14 @@ export class Control implements vscode.Disposable {
     return vscode.workspace.getConfiguration('celiador').get<string>('agentTasks.permissionMode') === 'default' ? 'default' : 'auto';
   }
 
-  private launch(root: string, options: { title: string; prompt: string; permissionMode: PermissionMode; taskId?: string }): AgentRun {
-    const run = new AgentRun({ root, ...options }, this.deps, this.output);
+  /** `repo` is the repository the run belongs to; `root` is where it works (the repository or a task's worktree). */
+  private launch(repo: string, root: string, options: { title: string; prompt: string; permissionMode: PermissionMode; taskId?: string }): AgentRun {
+    const repoSettings = this.trust.repoSettingsFor(repo);
+    const run = new AgentRun({ root, ...options, repoSettings }, this.deps, this.output);
+    if (repoSettings === 'skip') {
+      this.deps.log(`run on ${root}: the repository's own .claude settings are not loaded (workspace trusted after the window opened)`);
+      void this.trust.notifySkipped(repo, root);
+    }
     this.runs.set(run.id, run);
     this.runsEmitter.fire();
     run.onDidChangeStatus(() => this.runsEmitter.fire());
@@ -132,12 +140,17 @@ export class Control implements vscode.Disposable {
     const repo = this.repoFor(cmd.remoteUrl);
     if (!repo) {return;}
     this.handled.add(cmd.requestId);
+    if (!this.trust.isTrusted) {
+      this.deps.log(`phone run on ${repo.fsPath} refused: the workspace is not trusted`);
+      void this.trust.explainRestricted(`your phone asked to run an agent on ${cmd.name ?? repo.fsPath}; it did not start.`);
+      return;
+    }
     // The phone may open a run without a first message (the editor fork opens an
     // idle chat); here the person at the keyboard types it.
     const seeded = !!cmd.prompt?.trim();
     const prompt = cmd.prompt?.trim() || (await vscode.window.showInputBox({ title: `Your phone wants to run an agent on ${cmd.name ?? repo.fsPath}`, prompt: 'What should it do?', ignoreFocusOut: true }))?.trim();
     if (!prompt) {return;}
-    this.launch(repo.fsPath, { title: prompt.slice(0, 80), prompt, permissionMode: this.permissionMode() });
+    this.launch(repo.fsPath, repo.fsPath, { title: prompt.slice(0, 80), prompt, permissionMode: this.permissionMode() });
     const nested = !vscode.workspace.workspaceFolders?.some((f) => f.uri.fsPath === repo.fsPath);
     signal({ type: 'celiador/phoneRun', payload: { seeded: seeded ? 'true' : 'false', nested: nested ? 'true' : 'false' } });
     void vscode.window.showInformationMessage(`Celiador: an agent is running on ${cmd.name ?? repo.fsPath}, started from your phone.`);
@@ -148,6 +161,11 @@ export class Control implements vscode.Disposable {
     if (!cmd.taskId || !cmd.remoteUrl || !cmd.branch || !cmd.prompt || this.handled.has(cmd.taskId)) {return;}
     const repo = this.repoFor(cmd.remoteUrl);
     if (!repo) {return;}
+    if (!this.trust.isTrusted) {
+      // Not taken: a trusted window (or this one, once trusted) can pick it up.
+      this.deps.log(`task ${cmd.taskId}: not picked up, the workspace is not trusted`);
+      return;
+    }
     this.handled.add(cmd.taskId);
     const settings = vscode.workspace.getConfiguration('celiador');
     let worktree: { path: string; branch: string };
@@ -159,7 +177,7 @@ export class Control implements vscode.Disposable {
       await this.reportTask(cmd.taskId, { state: 'failed', error: `Couldn't create the worktree: ${message}` });
       return;
     }
-    const run = this.launch(worktree.path, { title: cmd.title || cmd.branch, prompt: cmd.prompt, permissionMode: this.permissionMode(), taskId: cmd.taskId });
+    const run = this.launch(repo.fsPath, worktree.path, { title: cmd.title || cmd.branch, prompt: cmd.prompt, permissionMode: this.permissionMode(), taskId: cmd.taskId });
     await this.reportTask(cmd.taskId, { state: 'running', sessionId: run.sessionId });
     if (cmd.issue && !cmd.commented && settings.get<boolean>('agentTasks.issueComment') !== false) {
       const body = `Celiador picked this up: an agent is working on it in a worktree on branch \`${worktree.branch}\` and will open a pull request linked here. Approvals and questions go to the Celiador queue.`;
@@ -209,6 +227,7 @@ export class Control implements vscode.Disposable {
   }
 
   private repoFor(remoteUrl: string): vscode.Uri | undefined {
+    // Every open repository, trusted or not, so a refused command is explained (see handle()).
     return openRepos().find((r) => r.remoteUrl.toLowerCase() === remoteUrl.toLowerCase())?.folder;
   }
 
