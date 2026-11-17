@@ -1,4 +1,7 @@
 .vscode/**
+.github/**
+.claude/**
+CONTRIBUTING.md
 .gitignore
 src/**
 tsconfig.json
