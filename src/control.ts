@@ -37,10 +37,45 @@ interface TaskCommand {
   readonly commented?: boolean;
 }
 
+/** The pull request's size, as GitHub reports it (gitReview.ts `PullRequestInfo`). */
+interface TaskPullRequest {
+  readonly number: number;
+  readonly additions?: number;
+  readonly deletions?: number;
+  readonly changedFiles?: number;
+}
+
 interface FinishResult {
   ok: boolean;
   url?: string;
   error?: string;
+  pr?: TaskPullRequest;
+}
+
+/** What `POST /api/tasks/:id/status` accepts (same shape as the Celiador editor reports). */
+interface TaskStatusReport {
+  readonly state: 'running' | 'pr-open' | 'failed';
+  readonly sessionId?: string;
+  readonly prUrl?: string;
+  readonly error?: string;
+  readonly pr?: TaskPullRequest;
+  /** The run's final assistant message (≤ TASK_SUMMARY_MAX_CHARS); the daemon composes the PR body from it. */
+  readonly summary?: string;
+}
+
+/** The final message sent as `summary` is clipped to this, as in the editor. */
+const TASK_SUMMARY_MAX_CHARS = 8000;
+
+/** The "picked up" comment on a queued issue (same text as the Celiador editor's). */
+function pickedUpComment(options: { machine?: string; branch: string; baseBranch?: string; taskId: string; openBaseUrl: string }): string {
+  const base = options.openBaseUrl.replace(/\/+$/, '');
+  return [
+    `**Picked up.** Running on ${options.machine?.trim() || 'a computer'} in its own worktree, \`${options.branch}\`.`,
+    '',
+    `I'll open a pull request against \`${options.baseBranch?.trim() || 'main'}\` and link it here. Approvals and questions go to the Celiador queue.`,
+    '',
+    `[Watch the run](${base}/api/open/task/${encodeURIComponent(options.taskId)}) · [Open the queue](${base}/api/open/queue)`,
+  ].join('\n');
 }
 
 export class Control implements vscode.Disposable {
@@ -50,6 +85,7 @@ export class Control implements vscode.Disposable {
   private readonly runsEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeRuns = this.runsEmitter.event;
   private disposed = false;
+  private machine: string | undefined;
 
   constructor(
     private readonly deps: RunDeps,
@@ -162,7 +198,8 @@ export class Control implements vscode.Disposable {
     const run = this.launch(worktree.path, { title: cmd.title || cmd.branch, prompt: cmd.prompt, permissionMode: this.permissionMode(), taskId: cmd.taskId });
     await this.reportTask(cmd.taskId, { state: 'running', sessionId: run.sessionId });
     if (cmd.issue && !cmd.commented && settings.get<boolean>('agentTasks.issueComment') !== false) {
-      const body = `Celiador picked this up: an agent is working on it in a worktree on branch \`${worktree.branch}\` and will open a pull request linked here. Approvals and questions go to the Celiador queue.`;
+      const context = await this.taskContext(repo.fsPath);
+      const body = pickedUpComment({ machine: context.machine, branch: worktree.branch, baseBranch: context.defaultBranch, taskId: cmd.taskId, openBaseUrl: this.deps.daemonUrl() });
       void vscode.commands.executeCommand<{ ok: boolean; error?: string }>('celiadorRemote.commentOnIssue', { remoteUrl: cmd.remoteUrl, number: cmd.issue.number, body })
         .then((r) => { if (!r?.ok) {this.deps.log(`task ${cmd.taskId}: no issue comment (${r?.error ?? 'unavailable'})`);} }, () => undefined);
     }
@@ -172,15 +209,21 @@ export class Control implements vscode.Disposable {
       await this.reportTask(cmd.taskId, { state: 'failed', error: status === 'cancelled' ? 'The run was cancelled.' : 'The agent run failed.' });
       return;
     }
+    // The run's final message: the pull request body is written from it, and the
+    // daemon gets it as `summary` (it refreshes the body with the cost).
+    const summary = run.lastText.trim() ? run.lastText.trim().slice(0, TASK_SUMMARY_MAX_CHARS) : undefined;
     try {
       const result = await vscode.commands.executeCommand<FinishResult>('celiadorRemote.finishTask', {
         root: worktree.path,
         title: cmd.title || cmd.branch,
         issue: cmd.issue,
         attribution: settings.get<boolean>('agentTasks.attribution') === true,
+        finalMessage: summary,
+        startedAt: run.startedAt.getTime(),
+        machine: await this.machineName(),
       });
       if (!result?.ok || !result.url) {throw new Error(result?.error ?? 'opening the pull request failed');}
-      await this.reportTask(cmd.taskId, { state: 'pr-open', prUrl: result.url });
+      await this.reportTask(cmd.taskId, { state: 'pr-open', prUrl: result.url, pr: result.pr, summary });
       signal({ type: 'celiador/taskRun', payload: { result: 'pr-open' } });
       this.deps.log(`task ${cmd.taskId} opened ${result.url}`);
       void vscode.window.showInformationMessage(`Celiador opened a pull request for “${cmd.title}”.`, 'Open').then((choice) => {
@@ -194,14 +237,30 @@ export class Control implements vscode.Disposable {
     }
   }
 
-  private async reportTask(taskId: string, status: { state: 'running' | 'pr-open' | 'failed'; sessionId?: string; prUrl?: string; error?: string }): Promise<void> {
+  /** This computer's name and the repository's default branch, from the git review commands. */
+  private async taskContext(repoRoot?: string): Promise<{ machine?: string; defaultBranch?: string }> {
+    try {
+      return await vscode.commands.executeCommand<{ machine?: string; defaultBranch?: string }>('celiadorRemote.taskContext', { repoRoot }) ?? {};
+    } catch {
+      return {};
+    }
+  }
+
+  private async machineName(): Promise<string | undefined> {
+    this.machine ??= (await this.taskContext()).machine;
+    return this.machine;
+  }
+
+  /** Tell the daemon how a task is doing (with this computer's name); best-effort. */
+  private async reportTask(taskId: string, status: TaskStatusReport): Promise<void> {
     const token = await this.getToken().catch(() => undefined);
     if (!token) {return;}
+    const machine = await this.machineName();
     try {
       await fetch(`${this.deps.daemonUrl()}/api/tasks/${encodeURIComponent(taskId)}/status`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify(status),
+        body: JSON.stringify({ ...status, ...(machine ? { machine } : {}) }),
       });
     } catch (err) {
       this.deps.log(`task status report failed: ${err instanceof Error ? err.message : String(err)}`);

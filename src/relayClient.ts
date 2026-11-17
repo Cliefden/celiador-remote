@@ -32,6 +32,8 @@ export interface RelayGitArgs {
   readonly body?: string;
   readonly base?: string;
   readonly method?: 'merge' | 'squash' | 'rebase';
+  /** git.merge: the branch whose pull request to merge; the worktree's HEAD when unset. */
+  readonly head?: string;
 }
 
 interface RelayCommand {
@@ -46,6 +48,8 @@ interface RelayCommand {
   readonly body?: string;
   readonly base?: string;
   readonly method?: 'merge' | 'squash' | 'rebase';
+  /** git.merge: the branch whose pull request to merge; the worktree's HEAD when unset. */
+  readonly head?: string;
 }
 
 const FLUSH_MS = 150;
@@ -242,7 +246,7 @@ export class RelayClient {
     } else if ((cmd.kind === 'fs.list' || cmd.kind === 'fs.read' || cmd.kind === 'fs.write') && cmd.requestId) {
       o.onFsCommand?.(cmd.kind, cmd.requestId, cmd.path ?? '', cmd.content);
     } else if ((cmd.kind === 'git.status' || cmd.kind === 'git.diff' || cmd.kind === 'git.commit' || cmd.kind === 'git.revert' || cmd.kind === 'git.push' || cmd.kind === 'git.pr' || cmd.kind === 'git.merge') && cmd.requestId) {
-      o.onGitCommand?.(cmd.kind, cmd.requestId, { path: cmd.path, message: cmd.message, paths: cmd.paths, title: cmd.title, body: cmd.body, base: cmd.base, method: cmd.method });
+      o.onGitCommand?.(cmd.kind, cmd.requestId, { path: cmd.path, message: cmd.message, paths: cmd.paths, title: cmd.title, body: cmd.body, base: cmd.base, method: cmd.method, head: typeof cmd.head === 'string' ? cmd.head : undefined });
     }
   }
 

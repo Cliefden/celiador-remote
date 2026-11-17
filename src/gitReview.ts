@@ -1,17 +1,18 @@
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) Celiador. Licensed under the Apache License, Version 2.0.
- *  Ported from the celiador-ai extension of the Celiador editor.
+ *  Ported from the celiador-ai extension of the Celiador editor; keep the two in step.
  *--------------------------------------------------------------------------------------------*/
 import * as vscode from 'vscode';
+import { composeTaskPrBody } from './prBody';
 
-// The relay's run-review executor. The workbench relay bridge receives `git.*`
+// The relay's run-review executor. An agent run's relay client receives `git.*`
 // commands from the phone (via the daemon) and delegates here over the
-// `celiador.relayGit` command — the extension host has the vscode.git extension
-// API, so status/diff/commit/discard/push run through the editor's own git
-// machinery (no raw process spawning, honors the user's git config, hooks and
-// credentials), and a pull request is opened with the editor's GitHub sign-in.
+// `celiadorRemote.relayGit` command, which uses the vscode.git extension API:
+// status/diff/commit/discard run through the editor's own git machinery
+// (honours the user's git config, hooks and credentials), and a pull request is
+// opened with the editor's GitHub sign-in (or the gh CLI's).
 
-/** Arguments the bridge passes through from the relayed git.* command. */
+/** Arguments the run passes through from the relayed git.* command. */
 interface GitReviewArgs {
   kind: 'git.status' | 'git.diff' | 'git.commit' | 'git.revert' | 'git.push' | 'git.pr' | 'git.merge';
   path?: string;
@@ -22,11 +23,13 @@ interface GitReviewArgs {
   base?: string;
   /** git.merge: GitHub's merge method (a merge commit when unset). */
   method?: 'merge' | 'squash' | 'rebase';
+  /** git.merge: the branch whose pull request to merge; the worktree's HEAD when unset. */
+  head?: string;
   /** Celiador agent task: the run's own worktree; the main checkout when unset. */
   root?: string;
 }
 
-/** The `fs.result` payload (minus requestId, which the bridge owns). */
+/** The `fs.result` payload (minus requestId, which the run owns). */
 interface GitReviewResult {
   ok: boolean;
   error?: string;
@@ -39,6 +42,23 @@ interface GitReviewResult {
   created?: boolean;
   /** git.merge: true once GitHub reports the pull request merged. */
   merged?: boolean;
+  /** git.pr / finishTask: the pull request's size, as GitHub reports it. */
+  pr?: PullRequestInfo;
+}
+
+/** The numbers a task reports for its pull request (agents UI contract §2). */
+export interface PullRequestInfo {
+  number: number;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
+}
+
+/** {@link PullRequestInfo} from a GitHub pull request object; undefined without a number. */
+function pullRequestInfo(pr: any): PullRequestInfo | undefined {
+  if (typeof pr?.number !== 'number') {return undefined;}
+  const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
+  return { number: pr.number, additions: num(pr.additions), deletions: num(pr.deletions), changedFiles: num(pr.changed_files) };
 }
 
 // Minimal slices of the vscode.git API (extensions/git/src/api/git.d.ts).
@@ -77,7 +97,7 @@ function pickRemote(repo: GitRepository): GitRemote | undefined {
 }
 
 /** `owner/repo` from a GitHub remote URL (https or ssh); undefined for other hosts. */
-function parseGitHubRemote(url: string | undefined): { owner: string; repo: string } | undefined {
+export function parseGitHubRemote(url: string | undefined): { owner: string; repo: string } | undefined {
   if (!url) {return undefined;}
   const m = /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/i.exec(url.trim());
   return m ? { owner: m[1], repo: m[2] } : undefined;
@@ -96,18 +116,20 @@ async function githubCliToken(): Promise<string | undefined> {
 }
 
 /**
- * Open (or find) the pull request for `head` with the editor's GitHub sign-in,
- * else the GitHub CLI's. Without either we don't prompt from a background relay
- * command — the phone gets a compare link to finish in the browser instead.
+ * The GitHub token to act with: the editor's GitHub sign-in, else the gh CLI's.
+ * Silent by default (background relay commands must not prompt); `interactive`
+ * asks for the editor's GitHub sign-in when neither exists (a user gesture).
  */
-/** The GitHub token to act with: the editor's GitHub sign-in, else the gh CLI's. */
-async function githubToken(): Promise<string | undefined> {
+export async function githubToken(interactive = false): Promise<string | undefined> {
   const session = await vscode.authentication.getSession('github', ['repo'], { silent: true });
-  return session?.accessToken ?? await githubCliToken();
+  const token = session?.accessToken ?? await githubCliToken();
+  if (token || !interactive) {return token;}
+  const asked = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true }).then((s) => s, () => undefined);
+  return asked?.accessToken;
 }
 
 /** A minimal GitHub REST caller bound to `token`. */
-function githubApi(token: string): (method: string, path: string, body?: unknown) => Promise<{ status: number; json: any }> {
+export function githubApi(token: string): (method: string, path: string, body?: unknown) => Promise<{ status: number; json: any }> {
   return async (method, path, body) => {
     const res = await fetch(`https://api.github.com${path}`, {
       method,
@@ -144,6 +166,12 @@ async function mergePullRequest(target: { owner: string; repo: string }, head: s
   return { ok: false, merged: false, url: pr.html_url, error: typeof detail === 'string' ? detail : `GitHub returned ${merged.status}` };
 }
 
+/**
+ * Open (or find) the pull request for `head` with the editor's GitHub sign-in,
+ * else the GitHub CLI's. Without either we don't prompt from a background relay
+ * command — the phone gets a compare link to finish in the browser instead.
+ * Either way a found PR comes back with its size (`pr`).
+ */
 async function openPullRequest(target: { owner: string; repo: string }, head: string, args: GitReviewArgs): Promise<GitReviewResult> {
   const title = args.title!.trim();
   const token = await githubToken();
@@ -159,12 +187,15 @@ async function openPullRequest(target: { owner: string; repo: string }, head: st
   }
   const created = await api('POST', `${repoPath}/pulls`, { title, body: args.body ?? '', head, base });
   if (created.status === 201 && typeof created.json?.html_url === 'string') {
-    return { ok: true, url: created.json.html_url, created: true };
+    return { ok: true, url: created.json.html_url, created: true, pr: pullRequestInfo(created.json) };
   }
-  // Already open for this branch? Hand back the existing one.
+  // Already open for this branch (e.g. a follow-up pushed more)? Hand back the
+  // existing one; the list omits the size, so read the PR itself for it.
   const existing = await api('GET', `${repoPath}/pulls?state=open&head=${encodeURIComponent(`${target.owner}:${head}`)}`);
   if (Array.isArray(existing.json) && typeof existing.json[0]?.html_url === 'string') {
-    return { ok: true, url: existing.json[0].html_url, created: false };
+    const listed = existing.json[0];
+    const full = typeof listed.number === 'number' ? await api('GET', `${repoPath}/pulls/${listed.number}`).catch(() => undefined) : undefined;
+    return { ok: true, url: listed.html_url, created: false, pr: pullRequestInfo(full?.status === 200 ? full.json : listed) };
   }
   const detail = created.json?.errors?.[0]?.message ?? created.json?.message;
   return { ok: false, error: typeof detail === 'string' ? detail : `GitHub returned ${created.status}` };
@@ -301,7 +332,8 @@ async function execute(args: GitReviewArgs): Promise<GitReviewResult> {
     }
     case 'git.merge': {
       await repo.status();
-      const branch = repo.state.HEAD?.name;
+      // A finished task names its branch (contract §4): the worktree may have moved on.
+      const branch = args.head?.trim() || repo.state.HEAD?.name;
       if (!branch) {return { ok: false, error: 'detached HEAD — check out a branch first' };}
       const remote = pickRemote(repo);
       const target = parseGitHubRemote(remote?.pushUrl ?? remote?.fetchUrl);
@@ -311,7 +343,7 @@ async function execute(args: GitReviewArgs): Promise<GitReviewResult> {
   }
 }
 
-/** Register the command the workbench relay bridge delegates git.* commands to. */
+/** Register the command an agent run delegates the phone's git.* commands to. */
 export function registerGitReview(): vscode.Disposable {
   return vscode.commands.registerCommand('celiadorRemote.relayGit', async (args: GitReviewArgs): Promise<GitReviewResult> => {
     try {
@@ -324,7 +356,7 @@ export function registerGitReview(): vscode.Disposable {
 
 // --- Agent tasks (issue → worktree run → pull request) -----------------------
 
-/** What the editor control asks for when a task's run has finished. */
+/** What the control stream asks for when a task's run has finished. */
 interface FinishTaskArgs {
   /** The run's worktree. */
   root: string;
@@ -332,13 +364,61 @@ interface FinishTaskArgs {
   issue?: { number: number; url: string };
   /** Add the opt-in "made with Celiador" line to the pull request body. */
   attribution?: boolean;
+  /** The run's final assistant message: the pull request body is written from it (stand-out contract §4). */
+  finalMessage?: string;
+  /** When the run started (epoch ms), for the body's elapsed time. */
+  startedAt?: number;
+  /** This computer's name, for the body's "Run by Celiador on …" line. */
+  machine?: string;
+}
+
+/** Run `git -C <cwd> <args>` and resolve its stdout (rejects on a non-zero exit). */
+export async function runGit(cwd: string, args: string[], timeout = 15_000): Promise<string> {
+  const { execFile } = await import('child_process');
+  return new Promise<string>((resolve, reject) =>
+    execFile('git', ['-C', cwd, ...args], { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => err ? reject(err) : resolve(stdout)));
+}
+
+/** The repository's default branch as origin advertises it (`origin/HEAD`), if known. */
+export async function defaultBranch(repoRoot: string): Promise<string | undefined> {
+  try {
+    const ref = (await runGit(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])).trim();
+    return ref.replace(/^origin\//, '') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * This computer's name for "Running on <machine>": the macOS Computer Name
+ * ("Stefan's MacBook Pro") when available, else the host name minus `.local`.
+ */
+export async function machineName(): Promise<string> {
+  const os = await import('os');
+  if (process.platform === 'darwin') {
+    const { execFile } = await import('child_process');
+    const pretty = await new Promise<string | undefined>((resolve) =>
+      execFile('scutil', ['--get', 'ComputerName'], { timeout: 5_000 }, (err, stdout) => resolve(err ? undefined : stdout.trim() || undefined)));
+    if (pretty) {return pretty;}
+  }
+  return os.hostname().replace(/\.local$/i, '');
+}
+
+/** How many files the branch changes against origin's default branch; undefined when git can't tell. */
+async function changedFileCount(root: string): Promise<number | undefined> {
+  const base = await defaultBranch(root);
+  if (!base) {return undefined;}
+  try {
+    const out = await runGit(root, ['diff', '--name-only', `origin/${base}...HEAD`]);
+    return out.split('\n').filter((line) => line.trim().length > 0).length;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The worktree checked out on `branch` under the repository at `repoRoot`, if any. */
 async function worktreeForBranch(repoRoot: string, branch: string): Promise<string | undefined> {
-  const { execFile } = await import('child_process');
-  const out = await new Promise<string>((resolve, reject) =>
-    execFile('git', ['-C', repoRoot, 'worktree', 'list', '--porcelain'], { timeout: 15_000 }, (err, stdout) => err ? reject(err) : resolve(stdout)));
+  const out = await runGit(repoRoot, ['worktree', 'list', '--porcelain']);
   let current: string | undefined;
   for (const line of out.split('\n')) {
     if (line.startsWith('worktree ')) {
@@ -352,9 +432,11 @@ async function worktreeForBranch(repoRoot: string, branch: string): Promise<stri
 
 /**
  * Finish an agent task: commit whatever the agent left uncommitted, push the
- * branch, and open its pull request (`Closes #n` when it came from an issue).
- * Uses the user's git identity, hooks and credentials, and the editor's GitHub
- * sign-in — without one, a compare link comes back instead (`created: false`).
+ * branch, and open its pull request, whose body ({@link composeTaskPrBody})
+ * tells the reviewer what the agent did and what it is unsure about (`Closes
+ * #n` when it came from an issue). Uses the user's git identity, hooks and
+ * credentials, and the editor's GitHub sign-in — without one, a compare link
+ * comes back instead (`created: false`).
  */
 async function finishTask(args: FinishTaskArgs): Promise<GitReviewResult> {
   const repo = await getRepo(args.root);
@@ -369,13 +451,26 @@ async function finishTask(args: FinishTaskArgs): Promise<GitReviewResult> {
   const remote = pickRemote(repo);
   const target = parseGitHubRemote(remote?.pushUrl ?? remote?.fetchUrl);
   if (!remote || !target) {return { ok: false, error: `the repository's remote is not on GitHub` };}
-  await repo.push(remote.name, branch, true);
-  const lines = [args.issue ? `Closes #${args.issue.number}` : ''];
-  if (args.attribution) {
-    // Opt-in (celiador.agentTasks.attribution): the growth loop's one line.
-    lines.push('', '---', `Made with [Celiador](https://celiador.ai): an agent ran this${args.issue ? ` from issue #${args.issue.number}` : ''} and a person reviewed it.`);
+  // The task branch is the agent's own. A follow-up turn may have amended or
+  // rebased what it already pushed, so push with a lease: it rewrites only if the
+  // remote still holds what this worktree last fetched (nobody else pushed).
+  // Plain git, since the git extension refuses forced pushes unless git.allowForcePush.
+  try {
+    await runGit(repo.rootUri.fsPath, ['push', '--force-with-lease', '--set-upstream', remote.name, `${branch}:${branch}`], 120_000);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message.split('\n').filter((l) => l.trim()).slice(-2).join(' ') : String(err);
+    return { ok: false, error: `couldn't push ${branch}: ${detail}` };
   }
-  const body = lines.join('\n');
+  // The body is built here from the final message (the daemon, which also gets
+  // it as `summary`, refreshes the body with the cost once it can).
+  const body = composeTaskPrBody({
+    issueNumber: args.issue?.number,
+    finalMessage: args.finalMessage,
+    machine: args.machine ?? await machineName().catch(() => undefined),
+    files: await changedFileCount(repo.rootUri.fsPath),
+    elapsedMs: typeof args.startedAt === 'number' ? Math.max(0, Date.now() - args.startedAt) : undefined,
+    attribution: args.attribution,
+  });
   const pr = await openPullRequest(target, branch, { kind: 'git.pr', title: args.title, body });
   if (!pr.ok && /no commits between/i.test(pr.error ?? '')) {
     return { ok: false, error: 'the agent made no changes' };
@@ -383,7 +478,7 @@ async function finishTask(args: FinishTaskArgs): Promise<GitReviewResult> {
   return { ...pr, branch };
 }
 
-/** Register the agent-task commands the workbench's editor control calls. */
+/** Register the agent-task commands the control stream (control.ts) calls. */
 export function registerTaskCommands(): vscode.Disposable {
   return vscode.Disposable.from(
     vscode.commands.registerCommand('celiadorRemote.taskWorktree', async (args: { repoRoot: string; branch: string }): Promise<string | undefined> => {
@@ -392,6 +487,15 @@ export function registerTaskCommands(): vscode.Disposable {
       } catch {
         return undefined;
       }
+    }),
+    // What the control stream reports alongside a task: this computer's name and
+    // the repository's default branch (the "picked up" comment's PR base).
+    vscode.commands.registerCommand('celiadorRemote.taskContext', async (args?: { repoRoot?: string }): Promise<{ machine?: string; defaultBranch?: string }> => {
+      const [machine, base] = await Promise.all([
+        machineName().catch(() => undefined),
+        args?.repoRoot ? defaultBranch(args.repoRoot) : Promise.resolve(undefined),
+      ]);
+      return { machine, defaultBranch: base };
     }),
     vscode.commands.registerCommand('celiadorRemote.finishTask', async (args: FinishTaskArgs): Promise<GitReviewResult> => {
       try {
