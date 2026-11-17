@@ -118,6 +118,11 @@ export function openRepos(): OpenRepo[] {
   return repos.slice(0, MAX_REPOS);
 }
 
+/** The repositories the phone and the task queue may run agents on: none in Restricted Mode. */
+export function reachableRepos(): OpenRepo[] {
+  return vscode.workspace.isTrusted ? openRepos() : [];
+}
+
 export class Presence implements vscode.Disposable {
   readonly clientId = randomUUID();
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -139,7 +144,8 @@ export class Presence implements vscode.Disposable {
       await fetch(`${this.getUrl()}/api/presence/workspaces`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ clientId: this.clientId, workspaces: openRepos().map((r) => ({ name: r.name, remoteUrl: r.remoteUrl })) }),
+        // A window in Restricted Mode offers nothing: agents don't run there.
+        body: JSON.stringify({ clientId: this.clientId, workspaces: reachableRepos().map((r) => ({ name: r.name, remoteUrl: r.remoteUrl })) }),
       });
     } catch (err) {
       this.log(`presence heartbeat failed: ${err instanceof Error ? err.message : String(err)}`);

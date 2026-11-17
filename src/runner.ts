@@ -12,6 +12,7 @@ const loadSdk = () => import('@anthropic-ai/claude-agent-sdk');
 import { RelayClient, type RelayFsKind, type RelayGitArgs, type RelayGitKind } from './relayClient';
 import type { DaemonProxy } from './proxy';
 import { PhonePathError, resolvePhonePath } from './phoneFiles';
+import { type RepoSettings, settingSourcesFor } from './trust';
 
 // One agent run: a Claude Agent SDK session on a repository (or a task's
 // worktree), mirrored to the daemon's session relay so the phone can watch,
@@ -30,6 +31,8 @@ export interface RunOptions {
   readonly permissionMode: PermissionMode;
   /** Links the relay session to a queued task on the phone. */
   readonly taskId?: string;
+  /** Whether the SDK loads the repository's own `.claude` settings (see trust.ts). */
+  readonly repoSettings: RepoSettings;
 }
 
 export interface RunDeps {
@@ -150,6 +153,12 @@ export class AgentRun implements vscode.Disposable {
   }
 
   private async execute(): Promise<RunStatus> {
+    if (!vscode.workspace.isTrusted) {
+      // Callers check first; this is the last line before anything is spawned.
+      this.deps.log(`run refused: the workspace is not trusted (${this.options.root})`);
+      this.setStatus('error');
+      return this.status_;
+    }
     await this.relay.start(this.options.title, this.options.taskId);
     this.relay.publish({ kind: 'message', role: 'user', text: this.options.prompt });
     this.relay.publish({ kind: 'state', state: 'running' });
@@ -183,7 +192,7 @@ export class AgentRun implements vscode.Disposable {
       allowDangerouslySkipPermissions: true,
       includePartialMessages: true,
       disallowedTools: ['WebSearch'],
-      settingSources: ['user', 'project', 'local'],
+      settingSources: settingSourcesFor(this.options.repoSettings),
       settings: {
         env: {
           ANTHROPIC_BASE_URL: proxyUrl,
