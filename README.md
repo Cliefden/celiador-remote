@@ -32,6 +32,7 @@ The agent's usage goes through celiador.ai with your account's limits; no Anthro
 | `celiador.agentTasks.permissionMode` | `auto` | `auto`: Claude decides per tool call; routine commands run, risky ones ask on the phone and in the editor. `default`: every tool call asks. |
 | `celiador.agentTasks.issueComment` | `true` | Comment on the GitHub issue when its run starts (not needed when the Celiador GitHub App is installed on the repo). |
 | `celiador.agentTasks.attribution` | `false` | Add a "made with Celiador" line to pull requests from agent runs. |
+| `celiador.remote.allowPhoneEdits` | `true` | Let the phone edit a run's files. Never `.git`, `.vscode`, `.claude`, `.mcp.json`, `.envrc`, `.gitmodules` or anything a link leads to outside the repository; trusted workspaces only. User scope only. |
 | `celiador.daemonUrl` | empty | Self-hosting the daemon? Point this at it. User scope only. |
 
 ## How it works
