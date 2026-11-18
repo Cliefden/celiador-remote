@@ -49,7 +49,7 @@ phone / GitHub issue ─▶ celiador.ai (queue + relay) ─▶ this extension
 - Settings come from your user, project and local Claude settings (`settingSources`), so your CLAUDE.md, hooks and MCP servers apply.
 - Agents only run in a trusted workspace. In Restricted Mode the window offers no repositories to the phone, picks up no queued tasks and refuses runs. If you trust the workspace after the window opened (a fresh clone, say), runs start with your own Claude settings only; a notification names what the repository's `.claude` settings would run and offers "Load Repository Settings" for the next run.
 - The worktree is created from `origin/<default branch>` after a fetch, on the task's branch (suffixed if taken).
-- The Claude Code CLI itself is not in the VSIX (its native binary is about 270 MB). The extension uses a `claude` already installed on the machine, or downloads the exact version the SDK expects into its global storage the first time an agent runs.
+- The Claude Code CLI itself is not in the VSIX (its native binary is about 270 MB). The extension uses a `claude` already installed on the machine when it is the exact version the SDK pins; otherwise it downloads that version into its global storage the first time an agent runs, and checks the download against the npm package's integrity hash (shipped with the extension from its lockfile) before unpacking it. Only when that download is not possible does it fall back to an installed `claude` of another version.
 
 ## Telemetry
 
