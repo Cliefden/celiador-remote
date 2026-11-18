@@ -3,6 +3,8 @@
  *  Ported from the celiador-ai extension of the Celiador editor.
  *--------------------------------------------------------------------------------------------*/
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import { protectedReason, splitPhonePath } from './phoneFiles';
 
 // The relay's run-review executor. The workbench relay bridge receives `git.*`
 // commands from the phone (via the daemon) and delegates here over the
@@ -209,10 +211,11 @@ function relPath(repo: GitRepository, uri: vscode.Uri): string {
   return uri.path.startsWith(`${root}/`) ? uri.path.slice(root.length + 1) : uri.path;
 }
 
-/** Resolve a repo-relative path to an absolute fsPath, rejecting `..` escapes. */
+/** Resolve a repo-relative path to an absolute fsPath, rejecting `..` escapes and git internals. */
 function absPath(repo: GitRepository, rel: string): string {
-  const segments = rel.split('/').filter((s) => s.length > 0 && s !== '.');
-  if (segments.some((s) => s === '..')) {throw new Error('bad path');}
+  const segments = splitPhonePath(rel);
+  const reason = protectedReason(segments, 'read');
+  if (reason) {throw new Error(reason);}
   return vscode.Uri.joinPath(repo.rootUri, ...segments).fsPath;
 }
 
@@ -232,8 +235,10 @@ function changedFiles(repo: GitRepository): Array<{ path: string; status: string
 
 /** A pseudo-patch for a file git can't diff yet (untracked): whole file as added. */
 async function untrackedPatch(repo: GitRepository, rel: string): Promise<string> {
-  const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(repo.rootUri, ...rel.split('/')));
-  const text = new TextDecoder().decode(bytes);
+  const file = absPath(repo, rel);
+  // A symbolic link shows as its target path, as git shows it; never the file it points at.
+  const stat = await fs.promises.lstat(file);
+  const text = stat.isSymbolicLink() ? await fs.promises.readlink(file) : (await fs.promises.readFile(file)).toString('utf8');
   const lines = text.length ? text.replace(/\n$/, '').split('\n') : [];
   return [`--- /dev/null`, `+++ b/${rel}`, `@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`)].join('\n');
 }

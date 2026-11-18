@@ -39,7 +39,8 @@
       "description": "Agents do not run in Restricted Mode, and workspace settings cannot change where your credentials are sent.",
       "restrictedConfigurations": [
         "celiador.daemonUrl",
-        "celiador.supabaseUrl"
+        "celiador.supabaseUrl",
+        "celiador.remote.allowPhoneEdits"
       ]
     }
   },
@@ -108,6 +109,12 @@
           "type": "boolean",
           "default": true,
           "description": "When a queued GitHub issue starts running, comment on it (with your GitHub sign-in) saying an agent picked it up. Not needed when the Celiador GitHub App is installed on the repository: it comments as Celiador."
+        },
+        "celiador.remote.allowPhoneEdits": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Let the Celiador iPhone app edit files of an agent run in this editor. Edits never reach .git, .vscode, .claude, .mcp.json, .envrc or .gitmodules, nor files outside the repository, and need a trusted workspace. Turn off to make the phone's file explorer read-only."
         },
         "celiador.agentTasks.attribution": {
           "type": "boolean",

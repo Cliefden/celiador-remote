@@ -11,6 +11,7 @@ import type { CanUseTool, Options, PermissionMode, SDKMessage, SDKUserMessage } 
 const loadSdk = () => import('@anthropic-ai/claude-agent-sdk');
 import { RelayClient, type RelayFsKind, type RelayGitArgs, type RelayGitKind } from './relayClient';
 import type { DaemonProxy } from './proxy';
+import { PhonePathError, resolvePhonePath } from './phoneFiles';
 import { type RepoSettings, settingSourcesFor } from './trust';
 
 // One agent run: a Claude Agent SDK session on a repository (or a task's
@@ -334,19 +335,20 @@ export class AgentRun implements vscode.Disposable {
 
   // --- the phone's file explorer and review, served from the run's root -------
 
-  private resolveInRoot(rel: string): string | undefined {
-    const segments = rel.split('/').filter((s) => s.length > 0 && s !== '.');
-    if (segments.some((s) => s === '..')) {return undefined;}
-    return path.join(this.options.root, ...segments);
-  }
-
   private async handleFs(kind: RelayFsKind, requestId: string, rel: string, content: string | undefined): Promise<void> {
     try {
-      const target = this.resolveInRoot(rel);
-      if (!target) {throw new Error('bad path');}
+      if (kind === 'fs.write') {
+        // Writes run code-adjacent risks a read doesn't: trusted workspaces only,
+        // and the user can turn them off (application scope: a repository can't).
+        if (!vscode.workspace.isTrusted) {throw new PhonePathError('editing from the phone needs a trusted workspace');}
+        if (vscode.workspace.getConfiguration('celiador').get<boolean>('remote.allowPhoneEdits') === false) {
+          throw new PhonePathError('editing from the phone is turned off in this editor (celiador.remote.allowPhoneEdits)');
+        }
+      }
+      const target = await resolvePhonePath(this.options.root, rel, kind === 'fs.write' ? 'write' : 'read');
       if (kind === 'fs.list') {
         const entries = (await fs.promises.readdir(target, { withFileTypes: true }))
-          .filter((d) => d.name !== '.git')
+          .filter((d) => d.name.toLowerCase() !== '.git')
           .map((d) => ({ name: d.name, type: d.isDirectory() ? 'dir' : 'file', size: d.isDirectory() ? undefined : safeSize(path.join(target, d.name)) }))
           .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1));
         this.relay.publish({ kind: 'fs.result', requestId, ok: true, entries });
@@ -359,6 +361,10 @@ export class AgentRun implements vscode.Disposable {
       } else {
         await fs.promises.writeFile(target, content ?? '', 'utf8');
         this.relay.publish({ kind: 'fs.result', requestId, ok: true });
+        // Visible on the desktop too: the phone changed a file here.
+        const shown = path.relative(this.options.root, target) || rel;
+        this.deps.log(`the phone wrote ${shown} (${this.options.root})`);
+        vscode.window.setStatusBarMessage(`$(device-mobile) Celiador: your phone edited ${shown}`, 8_000);
       }
     } catch (err) {
       this.relay.publish({ kind: 'fs.result', requestId, ok: false, error: err instanceof Error ? err.message : String(err) });
