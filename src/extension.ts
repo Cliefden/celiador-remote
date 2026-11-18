@@ -10,6 +10,7 @@ import { registerGitReview, registerTaskCommands } from './gitReview';
 import { openRepos, Presence } from './presence';
 import { DaemonProxy } from './proxy';
 import { bucket, initTelemetry, signal } from './telemetry';
+import { RunTrust } from './trust';
 
 // Celiador Remote: run Claude agents on the repositories open in this editor,
 // started and reviewed from the Celiador iPhone app or a labelled GitHub issue.
@@ -32,8 +33,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const proxy = new DaemonProxy(() => `${daemonUrl()}/api/anthropic`, getToken, log);
   const presence = new Presence(daemonUrl, getToken, log);
   const claude = new ClaudeExecutable(context, log);
-  const control = new Control({ daemonUrl, getToken, proxy, claudeExecutable: () => claude.get(), log }, output, getToken);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
+  const trust = new RunTrust(() => {
+    log('workspace trusted: repositories are now reachable from the phone');
+    void presence.beat();
+    void refreshStatus();
+  });
+  const control = new Control({ daemonUrl, getToken, proxy, claudeExecutable: () => claude.get(), log }, output, getToken, trust);
   status.command = 'celiadorRemote.showRuns';
 
   const refreshStatus = async () => {
@@ -52,6 +58,10 @@ export function activate(context: vscode.ExtensionContext): void {
       status.text = `$(sync~spin) Celiador: ${runs.length} running`;
       status.tooltip = 'Agent runs in progress';
       status.command = 'celiadorRemote.showRuns';
+    } else if (!trust.isTrusted) {
+      status.text = '$(shield) Celiador';
+      status.tooltip = `Signed in as ${email}. Restricted Mode: agents don't run in this window and your phone can't reach it.`;
+      status.command = 'celiadorRemote.showRuns';
     } else {
       status.text = '$(cloud) Celiador';
       status.tooltip = `Signed in as ${email}. ${openRepos().length} repositories reachable from your phone.`;
@@ -61,7 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
-    output, status, presence, control,
+    output, status, presence, control, trust,
     { dispose: () => proxy.dispose() },
     auth.onDidChange(() => { void refreshStatus(); void presence.beat(); }),
     control.onDidChangeRuns(() => void refreshStatus()),
@@ -88,6 +98,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('celiadorRemote.startRun', async () => {
       if (!(await auth.isSignedIn())) {return signIn(auth);}
+      if (!trust.isTrusted) {return trust.explainRestricted('the agent did not start.');}
       const repos = openRepos();
       const folder = repos.length > 1
         ? (await vscode.window.showQuickPick(repos.map((r) => ({ label: r.name, description: r.remoteUrl, repo: r })), { title: 'Run an agent on…' }))?.repo
