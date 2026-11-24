@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.vsix
 .DS_Store
+
+# wb worktrees (one checkout per issue; see github.com/Cliefden/workbench)
+/.claude/worktrees/
+/.claude/settings.local.json

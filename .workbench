@@ -1,0 +1,10 @@
+# Read by `wb` (github.com/Cliefden/workbench) — worktrees, board, merge
+# trains. The manual is workbench's WORKTREES.md.
+WB_PROJECT="Celiador"
+
+wb_setup() {
+  npm ci
+}
+
+# No WB_SERVICES: the extension runs in an Extension Development Host (F5),
+# not as a service.
