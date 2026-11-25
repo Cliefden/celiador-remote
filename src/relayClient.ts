@@ -1,28 +1,17 @@
 import { randomUUID } from 'crypto';
+import type { FsResultFrame, RunnerEvent, SessionCommand, SessionState } from './contract';
 
 // The runner side of the Celiador agent-session relay, ported from the editor
 // fork (src/vs/workbench/.../celiadorRelayClient.ts) with no workbench
 // dependencies. A run publishes an ordered event log to the daemon; the phone
 // watches it over SSE and sends commands back over the command channel.
 
-export type RelayState = 'idle' | 'running' | 'awaiting' | 'done' | 'error' | 'cancelled';
+export type RelayState = SessionState;
 
-export type RelayEvent =
-  | { kind: 'activity'; text: string }
-  | { kind: 'delta'; text: string }
-  | { kind: 'message'; role: 'user' | 'assistant'; text: string }
-  | { kind: 'tool'; callId: string; name: string; input: unknown }
-  | { kind: 'toolResult'; callId: string; ok: boolean }
-  | { kind: 'approval'; requestId: string; approvalKind: string; title?: string; path?: string; preview?: string }
-  | { kind: 'question'; requestId: string; prompt: string; choices?: string[] }
-  | { kind: 'diff'; path: string; patch: string }
-  | { kind: 'state'; state: RelayState }
-  | { kind: 'done' }
-  | { kind: 'error'; message: string }
-  | { kind: 'fs.result'; requestId: string; ok: boolean; [key: string]: unknown };
+export type RelayEvent = RunnerEvent | FsResultFrame;
 
-export type RelayFsKind = 'fs.list' | 'fs.read' | 'fs.write';
-export type RelayGitKind = 'git.status' | 'git.diff' | 'git.commit' | 'git.revert' | 'git.push' | 'git.pr' | 'git.merge';
+export type RelayFsKind = Extract<SessionCommand['kind'], `fs.${string}`>;
+export type RelayGitKind = Extract<SessionCommand['kind'], `git.${string}`>;
 
 export interface RelayGitArgs {
   readonly path?: string;
@@ -36,6 +25,11 @@ export interface RelayGitArgs {
   readonly head?: string;
 }
 
+/**
+ * A command as parsed off the wire: the contract's `SessionCommand`, read
+ * loosely (every field optional, unknown kinds possible) because it is checked
+ * field by field in handleCommand before anything acts on it.
+ */
 interface RelayCommand {
   readonly kind: string;
   readonly text?: string;

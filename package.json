@@ -126,6 +126,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",
+    "sync-contract": "node scripts/sync-contract.mjs",
+    "check-contract": "node scripts/sync-contract.mjs --check",
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "package": "npm run typecheck && npm run build && vsce package",

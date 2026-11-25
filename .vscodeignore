@@ -4,6 +4,7 @@
 CONTRIBUTING.md
 .gitignore
 src/**
+scripts/**
 tsconfig.json
 esbuild.mjs
 dist/**/*.map

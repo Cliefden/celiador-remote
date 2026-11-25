@@ -349,7 +349,7 @@ export class AgentRun implements vscode.Disposable {
       if (kind === 'fs.list') {
         const entries = (await fs.promises.readdir(target, { withFileTypes: true }))
           .filter((d) => d.name.toLowerCase() !== '.git')
-          .map((d) => ({ name: d.name, type: d.isDirectory() ? 'dir' : 'file', size: d.isDirectory() ? undefined : safeSize(path.join(target, d.name)) }))
+          .map((d) => ({ name: d.name, type: d.isDirectory() ? 'dir' as const : 'file' as const, size: d.isDirectory() ? undefined : safeSize(path.join(target, d.name)) }))
           .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1));
         this.relay.publish({ kind: 'fs.result', requestId, ok: true, entries });
       } else if (kind === 'fs.read') {
