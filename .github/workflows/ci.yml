@@ -22,6 +22,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The daemon's API types are vendored from Cliefden/celiador at the commit in
+      # src/contract/SOURCE; this fails on a hand edit and notes when main moved on.
+      - run: npm run check-contract
       - run: npm run typecheck
       - run: npm run build
       - run: npx vsce package

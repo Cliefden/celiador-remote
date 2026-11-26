@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import type { WorkspaceEntry } from './contract';
 
 // Tells the daemon which repositories this editor has open, so the phone's
 // "From your editor" picker and the task queue can route runs here. Only the
@@ -145,7 +146,7 @@ export class Presence implements vscode.Disposable {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         // A window in Restricted Mode offers nothing: agents don't run there.
-        body: JSON.stringify({ clientId: this.clientId, workspaces: reachableRepos().map((r) => ({ name: r.name, remoteUrl: r.remoteUrl })) }),
+        body: JSON.stringify({ clientId: this.clientId, workspaces: reachableRepos().map((r): WorkspaceEntry => ({ name: r.name, remoteUrl: r.remoteUrl })) }),
       });
     } catch (err) {
       this.log(`presence heartbeat failed: ${err instanceof Error ? err.message : String(err)}`);

@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 import * as vscode from 'vscode';
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk';
+import type { EditorCommand, EditorTaskRequest, TaskStatusReport } from './contract';
 import { openRepos } from './presence';
 import { AgentRun, type RunDeps } from './runner';
 import { signal } from './telemetry';
@@ -17,51 +18,14 @@ import { createWorktree } from './worktree';
 const RECONNECT_MS = 3_000;
 const FINISHED_RUN_TTL_MS = 24 * 60 * 60_000;
 
-interface RunCommand {
-  readonly kind: 'start-run';
-  readonly requestId: string;
-  readonly remoteUrl: string;
-  readonly name?: string;
-  readonly branch?: string;
-  readonly prompt: string;
-}
-
-interface TaskCommand {
-  readonly kind: 'start-task';
-  readonly taskId: string;
-  readonly remoteUrl: string;
-  readonly name?: string;
-  readonly branch: string;
-  readonly prompt: string;
-  readonly title: string;
-  readonly issue?: { readonly number: number; readonly url: string };
-  readonly commented?: boolean;
-}
-
 /** The pull request's size, as GitHub reports it (gitReview.ts `PullRequestInfo`). */
-interface TaskPullRequest {
-  readonly number: number;
-  readonly additions?: number;
-  readonly deletions?: number;
-  readonly changedFiles?: number;
-}
+type TaskPullRequest = NonNullable<TaskStatusReport['pr']>;
 
 interface FinishResult {
   ok: boolean;
   url?: string;
   error?: string;
   pr?: TaskPullRequest;
-}
-
-/** What `POST /api/tasks/:id/status` accepts (same shape as the Celiador editor reports). */
-interface TaskStatusReport {
-  readonly state: 'running' | 'pr-open' | 'failed';
-  readonly sessionId?: string;
-  readonly prUrl?: string;
-  readonly error?: string;
-  readonly pr?: TaskPullRequest;
-  /** The run's final assistant message (≤ TASK_SUMMARY_MAX_CHARS); the daemon composes the PR body from it. */
-  readonly summary?: string;
 }
 
 /** The final message sent as `summary` is clipped to this, as in the editor. */
@@ -169,7 +133,8 @@ export class Control implements vscode.Disposable {
   }
 
   private async handle(payload: string): Promise<void> {
-    let cmd: RunCommand | TaskCommand;
+    // Parsed from the wire: checked field by field below, never trusted.
+    let cmd: EditorCommand;
     try {cmd = JSON.parse(payload);} catch {return;}
     if (cmd.kind === 'start-task') {return this.startTask(cmd);}
     if (cmd.kind !== 'start-run' || !cmd.requestId || !cmd.remoteUrl || this.handled.has(cmd.requestId)) {return;}
@@ -193,7 +158,7 @@ export class Control implements vscode.Disposable {
   }
 
   /** A queued task: new worktree on its branch, run, then push and open the pull request. */
-  private async startTask(cmd: TaskCommand): Promise<void> {
+  private async startTask(cmd: EditorTaskRequest): Promise<void> {
     if (!cmd.taskId || !cmd.remoteUrl || !cmd.branch || !cmd.prompt || this.handled.has(cmd.taskId)) {return;}
     const repo = this.repoFor(cmd.remoteUrl);
     if (!repo) {return;}
